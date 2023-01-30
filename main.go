@@ -86,15 +86,16 @@ func main() {
 
 	newTotal := []Entry{}
 	client := &http.Client{}
-	for _, item := range total {
+	for i, item := range total {
 		subtitleURL, err := getSubtitleURL(item.URL)
 		checkErr(err)
+		if len(subtitleURL) > 0 {
+			content, err := DownloadVTT(subtitleURL, client)
+			checkErr(err)
+			fmt.Println(i, item.URL, subtitleURL, content)
 
-		content, err := DownloadVTT(subtitleURL, client)
-		checkErr(err)
-		fmt.Println(content)
-
-		newTotal = append(newTotal, Entry{URL: item.URL, Transcript: content})
+			newTotal = append(newTotal, Entry{URL: item.URL, Transcript: content})
+		}
 	}
 
 	newBytes, err := json.MarshalIndent(newTotal, "", "\t")
