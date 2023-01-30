@@ -1,0 +1,38 @@
+name: golang-build-actions-workflow
+on:
+  push:
+    # Sequence of patterns matched against refs/tags
+    tags:
+      - 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      targetZip: output-${{ github.ref_name }}.zip
+    steps:
+      - uses: actions/checkout@v2
+      
+      - shell: cmd
+        run: |
+          curl https://github.com/dirkarnez/batchted/releases/download/v1.0.0/batchted-v1.0.0.zip -L --output batchted-v1.0.0.zip &&^
+          dir &&^
+          7z.exe x batchted-v1.0.0.zip
+          
+      - shell: cmd
+        run: |
+          batchted.exe --input=2023-01-30T20-14-42+08-00.txt
+          
+      - name: Archive Release
+        uses: thedoctor0/zip-release@master
+        with:
+          type: 'zip'
+          path: 2023-01-30T20-14-42+08-00.txt
+          filename: "${{ env.targetZip }}"
+          
+      - name: Release prebuilt
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "${{ env.targetZip }}"
+          allowUpdates: true
+          token: ${{ secrets.GITHUB_TOKEN }}
