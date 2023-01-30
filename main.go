@@ -46,32 +46,30 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"flag"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
+	"strings"
 	"time"
 
-	"github.com/chromedp/cdproto/page"
+	"github.com/chromedp/cdproto/network"
+	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
-	"github.com/dslipak/pdf"
 )
 
 var (
 	url string
 )
 
-func main() {
-	flag.StringVar(&url, "url", "", "target url")
-	flag.Parse()
-
-	if len(url) < 1 {
-		log.Fatalln("--url is needed")
-		return
+func checkErr(err error) {
+	if err != nil {
+		log.Fatal(err)
 	}
+}
 
+func main() {
 	// create context
 	opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.Flag("headless", false))
 	ctx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
@@ -82,87 +80,131 @@ func main() {
 		chromedp.WithLogf(log.Printf))
 	defer cancel()
 
-	// capture pdf
-	var buf []byte
-	if err := chromedp.Run(ctx, printToPDF(url, &buf)); err != nil {
-		log.Fatal(err)
-		return
+	type Entry struct {
+		URL        string `json:"url"`
+		Transcript string `json:"transcript"`
+		Summary    string `json:"summary"`
 	}
 
-	if err := ioutil.WriteFile("sample.pdf", buf, 0o644); err != nil {
-		log.Fatal(err)
-		return
+	total := []Entry{}
+
+	for i := 1; i < 145; i++ {
+		var url = fmt.Sprintf("https://www.ted.com/talks?language=en&page=%d&sort=newest", i)
+		// see Entry
+		var outputJsonArrayString string
+		if err := chromedp.Run(ctx, doStuff(url, &outputJsonArrayString)); err != nil {
+			log.Fatal(err)
+			return
+		}
+		var arr []Entry
+		_ = json.Unmarshal([]byte(outputJsonArrayString), &arr)
+
+		fmt.Println("page", i)
+		total = append(total, arr...)
 	}
-	fmt.Println("wrote sample.pdf")
+
+	count := len(total)
+	bytes, err := json.MarshalIndent(total, "", "\t")
+	checkErr(err)
+
+	filename := fmt.Sprintf("%s.txt", strings.ReplaceAll(time.Now().Format(time.RFC3339), ":", "-"))
+
+	err = ioutil.WriteFile(filename, bytes, 0644)
+	checkErr(err)
+
+	fmt.Println("Done,", count)
 }
 
-// var body = document.body,
-//     html = document.documentElement;
-
-// var height = Math.max( body.scrollHeight, body.offsetHeight,
-//                        html.clientHeight, html.scrollHeight, html.offsetHeight );
-
-// print a specific pdf page.
-func printToPDF(urlstr string, res *[]byte) chromedp.Tasks {
+func doStuff(urlstr string, outputJsonArrayString *string) chromedp.Tasks {
 	tasks := chromedp.Tasks{}
-
 	tasks = append(tasks,
 		chromedp.Navigate(urlstr),
-		// chromedp.EvaluateAsDevTools("document.documentElement.scrollTo(0, 0)", nil),
-		// chromedp.EvaluateAsDevTools("document.documentElement.scrollTo(Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER)", nil),
-		// chromedp.Sleep(1*time.Second),
-		// chromedp.WaitVisible(`document.querySelector("#js_content > section:nth-child(53) > section:nth-child(6) > img")`, chromedp.ByJSPath),
-	)
-	// var nodes []*cdp.Node
-	tasks = append(tasks,
-		// chromedp.Nodes(`document.querySelector("#js_content > section:nth-child(53) > section:nth-child(5) > p:nth-child(5)")`, &nodes, chromedp.ByJSPath),
-		// chromedp.MouseClickNode(nodes[0], chromedp.ButtonType(input.Right)),
-		chromedp.Sleep(5*time.Second),
-		chromedp.EvaluateAsDevTools(`Array.from(document.body.getElementsByTagName("*"))
-		.filter(element => element.style.overflow != "visible")
-		.forEach(element => {
-			element.style.overflow = "visible";
-		})`, nil),
-		chromedp.EvaluateAsDevTools(`Array.from(document.body.getElementsByTagName("pre"))
-		.forEach(element => {
-			element.style.whiteSpace = "pre-wrap";
-			element.style.wordBreak = "break-word";
-		})`, nil),
-		// chromedp.EvaluateAsDevTools("document.documentElement.scrollTo(0, 0)", nil),
-		// chromedp.EvaluateAsDevTools("document.documentElement.scrollTo(Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER)", nil),
-		// chromedp.WaitVisible(`document.querySelector("#js_content > section:nth-child(53) > section:nth-child(5) > p:nth-child(5) > img")`, chromedp.ByJSPath),
-		// chromedp.Sleep(5*time.Second),
-		// chromedp.EvaluateAsDevTools("document.documentElement.scrollTo(0, 0)", nil),
-		// chromedp.EvaluateAsDevTools("document.documentElement.scrollTo(Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER)", nil),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			var height = 100.0
-			var isMultiplePage = true
-
-			for isMultiplePage {
-				buf, _, err := page.PrintToPDF().WithPaperHeight(height).WithPrintBackground(true).Do(ctx)
-				if err != nil {
-					return err
-				}
-
-				reader := bytes.NewReader(buf)
-
-				pdfReader, err := pdf.NewReader(reader, int64(len(buf)))
-				if err != nil {
-					return err
-				}
-
-				numPage := pdfReader.NumPage()
-				if numPage == 1 {
-					isMultiplePage = false
-					*res = buf
-				} else {
-					height = height + 10
-				}
-			}
-
-			return nil
-		}),
+		chromedp.WaitVisible(`document.querySelector("#browse-results")`, chromedp.ByJSPath),
+		chromedp.EvaluateAsDevTools(`JSON.stringify(Array.from(document.getElementById("browse-results").getElementsByClassName("media__message")).map(msg => ({url: msg.getElementsByClassName("ga-link")[0].href})))`, &outputJsonArrayString),
 	)
 
 	return tasks
+}
+
+func getTitle(urlstr string) (string, error) {
+	// create context
+	opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.Flag("headless", false))
+	ctx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	defer cancel()
+
+	ctx, cancel = chromedp.NewContext(
+		ctx,
+		chromedp.WithLogf(log.Printf))
+	defer cancel()
+
+	var title string
+
+	chromedp.ListenTarget(ctx, func(ev interface{}) {
+
+		switch ev := ev.(type) {
+
+		case *network.EventResponseReceived:
+			resp := ev.Response
+			log.Printf("received headers: %s %s", resp.URL, resp.MimeType)
+
+			// if resp.URL == urlstr {
+			// 	log.Printf("received headers: %s %s", resp.URL, resp.MimeType)
+			// 	if resp.MimeType != "text/html" {
+			// 		chromedp.Cancel(ctx)
+			// 	}
+
+			// 	if strings.Contains(resp.URL, "youtube.com") {
+			// 		log.Printf("YT!!")
+			// 	}
+
+			// 	// may be redirected
+			// 	switch ContentType := resp.Headers["Content-Type"].(type) {
+			// 	case string:
+			// 		// here v has type T
+			// 		if !strings.Contains(ContentType, "text/html") {
+			// 			chromedp.Cancel(ctx)
+			// 		}
+			// 	}
+
+			// 	switch ContentType := resp.Headers["content-type"].(type) {
+			// 	case string:
+			// 		// here v has type T
+			// 		if !strings.Contains(ContentType, "text/html") {
+			// 			chromedp.Cancel(ctx)
+			// 		}
+			// 	}
+			// }
+		}
+	})
+
+	req := `
+(async () => new Promise((resolve, reject) => {
+	var handle = NaN;
+	(function animate() {
+		if (!isNaN(handle)) {
+			clearTimeout(handle);
+		}
+		if (document.title.length > 0 && !document.title.startsWith("http")) {
+			resolve(document.title);
+		} else {
+			handle = setTimeout(animate, 1000);
+		}
+	}());
+}));
+`
+	err := chromedp.Run(ctx,
+		chromedp.Navigate(urlstr),
+		//chromedp.Evaluate(`window.location.href`, &res),
+		chromedp.Evaluate(req, nil, func(p *runtime.EvaluateParams) *runtime.EvaluateParams {
+			return p.WithAwaitPromise(true)
+		}),
+		chromedp.Title(&title),
+	)
+	if err == context.Canceled {
+		// url as title
+		log.Printf("Cancel!!")
+		return urlstr, nil
+	}
+
+	return title, err
 }
