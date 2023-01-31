@@ -92,7 +92,7 @@ func main() {
 		if len(subtitleURL) > 0 {
 			content, err := DownloadVTT(subtitleURL, client)
 			checkErr(err)
-			fmt.Println(i, item.URL, subtitleURL, content)
+			fmt.Println(i, item.URL, subtitleURL) //, content)
 
 			newTotal = append(newTotal, Entry{URL: item.URL, Transcript: content})
 		}
