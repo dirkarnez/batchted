@@ -88,6 +88,7 @@ func main() {
 	client := &http.Client{}
 	for i, item := range total {
 		subtitleURL, err := getSubtitleURL(item.URL)
+		checkErr(err)
 		if len(subtitleURL) > 0 {
 			content, err := DownloadVTT(subtitleURL, client)
 			checkErr(err)
@@ -95,7 +96,6 @@ func main() {
 
 			newTotal = append(newTotal, Entry{URL: item.URL, Transcript: content})
 		}
-		checkErr(err)
 	}
 
 	newBytes, err := json.MarshalIndent(newTotal, "", "\t")
@@ -118,20 +118,20 @@ func doStuff(urlstr string, outputJsonArrayString *string) chromedp.Tasks {
 
 func getSubtitleURL(urlstr string) (string, error) {
 	// create context
+	done := make(chan bool)
+
 	opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.Flag("headless", false))
 	ctx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
 	defer cancel()
 
 	ctx, cancel = chromedp.NewContext(
-		ctx,
-		chromedp.WithLogf(log.Printf))
+		ctx)
 	defer cancel()
 
-	// create a timeout as a safety net to prevent any infinite wait loops
-	ctx, cancel = context.WithTimeout(ctx, 60*time.Second)
+	// ackCtx is created from pageCtx.
+	// when ackCtx exceeds the deadline, pageCtx is not affected.
+	ctx, cancel = context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-
-	done := make(chan bool)
 
 	var subtitleURL string
 	chromedp.ListenTarget(ctx, func(ev interface{}) {
@@ -140,28 +140,34 @@ func getSubtitleURL(urlstr string) (string, error) {
 
 		case *network.EventResponseReceived:
 			resp := ev.Response
-
 			if strings.Contains(resp.URL, "metadata.json") && resp.MimeType == "application/json" {
-				doc, err := jsonquery.LoadURL(resp.URL)
-				checkErr(err)
-				subtitle := jsonquery.FindOne(doc, "/subtitles/*[code='en']/webvtt")
-				if subtitle == nil {
-					close(done)
-				}
-
-				if len(subtitleURL) < 1 {
-					subtitleURL = fmt.Sprintf("%s", subtitle.Value())
-					close(done)
+				doc, _ := jsonquery.LoadURL(resp.URL)
+				if doc != nil {
+					subtitle := jsonquery.FindOne(doc, "/subtitles/*[code='en']/webvtt")
+					if subtitle != nil && len(subtitleURL) < 1 {
+						subtitleURL = fmt.Sprintf("%s", subtitle.Value())
+					}
 				}
 			}
 		}
 	})
 
+	// pageCtx is used to open the page
 	err := chromedp.Run(ctx,
 		chromedp.Navigate(urlstr),
+		chromedp.WaitVisible(`#fdgfdgfdgfdg`, chromedp.ByID),
 	)
+	if err != nil {
+		close(done)
+	}
+
 	<-done
-	return subtitleURL, err
+
+	// if err == context.DeadlineExceeded {
+	//     return subtitleURL, nil
+	// }
+
+	return subtitleURL, nil
 }
 
 func DownloadVTT(webvttURL string, client *http.Client) (string, error) {
