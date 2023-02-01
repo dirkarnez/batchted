@@ -10,18 +10,28 @@ jobs:
     name: Create Release
     strategy:
       matrix:
-        id: [a, b]
+        id: [a, b, c, d]
         include:
           - id: a
             os: windows-latest
             startIdx: 0
-            endIdx: 2501
-            targetZip: output-${{ github.ref_name }}-0-2501.zip
+            endIdx: 1301
+            targetZip: output-${{ github.ref_name }}-0-1301.zip
           - id: b
             os: windows-latest
-            startIdx: 2501
+            startIdx: 1301
+            endIdx: 2601
+            targetZip: output-${{ github.ref_name }}-1301-2601.zip
+          - id: c
+            os: windows-latest
+            startIdx: 2601
+            endIdx: 3901
+            targetZip: output-${{ github.ref_name }}-2601-3901.zip
+          - id: d
+            os: windows-latest
+            startIdx: 3901
             endIdx: -1
-            targetZip: output-${{ github.ref_name }}-2501-end.zip
+            targetZip: output-${{ github.ref_name }}-3901-end.zip
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2
