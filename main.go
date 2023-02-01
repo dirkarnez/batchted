@@ -88,7 +88,6 @@ func main() {
 	client := &http.Client{}
 	for i, item := range total {
 		subtitleURL, err := getSubtitleURL(item.URL)
-		checkErr(err)
 		if len(subtitleURL) > 0 {
 			content, err := DownloadVTT(subtitleURL, client)
 			checkErr(err)
@@ -96,6 +95,7 @@ func main() {
 
 			newTotal = append(newTotal, Entry{URL: item.URL, Transcript: content})
 		}
+		checkErr(err)
 	}
 
 	newBytes, err := json.MarshalIndent(newTotal, "", "\t")
@@ -127,8 +127,13 @@ func getSubtitleURL(urlstr string) (string, error) {
 		chromedp.WithLogf(log.Printf))
 	defer cancel()
 
-	var subtitleURL string
+	// create a timeout as a safety net to prevent any infinite wait loops
+	ctx, cancel = context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
 
+	done := make(chan bool)
+
+	var subtitleURL string
 	chromedp.ListenTarget(ctx, func(ev interface{}) {
 
 		switch ev := ev.(type) {
@@ -139,8 +144,15 @@ func getSubtitleURL(urlstr string) (string, error) {
 			if strings.Contains(resp.URL, "metadata.json") && resp.MimeType == "application/json" {
 				doc, err := jsonquery.LoadURL(resp.URL)
 				checkErr(err)
-				subtitle := jsonquery.FindOne(doc, "/subtitles/*[name='English']/webvtt")
-				subtitleURL = fmt.Sprintf("%s", subtitle.Value())
+				subtitle := jsonquery.FindOne(doc, "/subtitles/*[code='en']/webvtt")
+				if subtitle == nil {
+					close(done)
+				}
+
+				if len(subtitleURL) < 1 {
+					subtitleURL = fmt.Sprintf("%s", subtitle.Value())
+					close(done)
+				}
 			}
 		}
 	})
@@ -148,7 +160,7 @@ func getSubtitleURL(urlstr string) (string, error) {
 	err := chromedp.Run(ctx,
 		chromedp.Navigate(urlstr),
 	)
-
+	<-done
 	return subtitleURL, err
 }
 
