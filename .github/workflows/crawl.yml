@@ -15,8 +15,8 @@ jobs:
           - id: a
             os: windows-latest
             startIdx: 0
-            endIdx: 2500
-            targetZip: output-${{ github.ref_name }}-0-2500.zip
+            endIdx: 2501
+            targetZip: output-${{ github.ref_name }}-0-2501.zip
           - id: b
             os: windows-latest
             startIdx: 2501
