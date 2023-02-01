@@ -7,9 +7,22 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
-    env:
-      targetZip: output-${{ github.ref_name }}.zip
+    name: Create Release
+    strategy:
+      matrix:
+        id: [a, b]
+        include:
+          - id: a
+            os: windows-latest
+            startIdx: 0
+            endIdx: 2500
+            targetZip: output-${{ github.ref_name }}-0-2500.zip
+          - id: b
+            os: windows-latest
+            startIdx: 2501
+            endIdx: -1
+            targetZip: output-${{ github.ref_name }}-2501-end.zip
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2
       
@@ -21,18 +34,18 @@ jobs:
           
       - shell: cmd
         run: |
-          batchted.exe --input=2023-01-30T20-14-42+08-00.txt
+          batchted.exe --input=2023-01-30T20-14-42+08-00.txt --start=${{ matrix.startIdx }} --end=${{ matrix.endIdx }}
           
       - name: Archive Release
         uses: thedoctor0/zip-release@master
         with:
           type: 'zip'
           path: 2023-01-30T20-14-42+08-00.txt
-          filename: "${{ env.targetZip }}"
+          filename: "${{ matrix.targetZip }}"
           
       - name: Release prebuilt
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "${{ env.targetZip }}"
+          artifacts: "${{ matrix.targetZip }}"
           allowUpdates: true
           token: ${{ secrets.GITHUB_TOKEN }}
