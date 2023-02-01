@@ -26,6 +26,8 @@ func checkErr(err error) {
 
 var (
 	input string
+	start int
+	end   int
 )
 
 type Entry struct {
@@ -35,9 +37,11 @@ type Entry struct {
 }
 
 func main() {
+	flag.IntVar(&start, "start", -1, "start index (inclusive)")
+	flag.IntVar(&end, "end", -1, "end index (exclusive)")
 	flag.StringVar(&input, "input", "", "input file to work on")
-
 	flag.Parse()
+
 	if len(input) < 1 {
 		// create context
 		opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.Flag("headless", false))
@@ -84,15 +88,26 @@ func main() {
 
 	json.Unmarshal(bytes, &total)
 
+	var _start_inclusive int = 0
+	var _end_exclusive int = len(total)
+
+	if start > -1 {
+		_start_inclusive = start
+	}
+
+	if end > -1 {
+		_end_exclusive = end
+	}
+
 	newTotal := []Entry{}
 	client := &http.Client{}
-	for i, item := range total {
+	for i, item := range total[_start_inclusive:_end_exclusive] {
 		subtitleURL, err := getSubtitleURL(item.URL)
 		checkErr(err)
 		if len(subtitleURL) > 0 {
 			content, err := DownloadVTT(subtitleURL, client)
 			checkErr(err)
-			fmt.Println(i, item.URL, subtitleURL) //, content)
+			fmt.Println(i, item.URL, subtitleURL, content)
 
 			newTotal = append(newTotal, Entry{URL: item.URL, Transcript: content})
 		}
@@ -128,8 +143,6 @@ func getSubtitleURL(urlstr string) (string, error) {
 		ctx)
 	defer cancel()
 
-	// ackCtx is created from pageCtx.
-	// when ackCtx exceeds the deadline, pageCtx is not affected.
 	ctx, cancel = context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
